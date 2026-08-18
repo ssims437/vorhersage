@@ -1,0 +1,882 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<title>Vorhersage — wie weit ein Rechner in die Zukunft sieht</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Zwei identische Pendel, ein einziges Bit Unterschied — und nach kurzer Zeit haben sie nichts mehr miteinander zu tun. Lyapunov-Exponent gemessen, Vorhersagehorizont ausgerechnet, Integratoren gegeneinander gestellt." />
+
+<style>
+  :root {
+    --grund: #EDEEEF;
+    --feld:  #F9FAFA;
+    --tief:  #E1E3E5;
+    --linie: #C5C8CB;
+    --tinte: #15181B;
+    --leise: #616770;
+    --netz:  #B2B6BB;
+    --eins:  #1F5FA8;   /* die erste Bahn */
+    --zwei:  #A8471F;   /* die zweite, ein Bit daneben */
+    --grenze:#7A4E9A;   /* Horizont */
+    --gut:   #2C7A34;
+    --warn:  #A32C22;
+    --schatten: 0 1px 0 rgba(21,24,27,.05), 0 10px 24px -16px rgba(21,24,27,.45);
+    --f-fest: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, "DejaVu Sans Mono", monospace;
+    --f-text: -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --grund: #111315; --feld: #181A1C; --tief: #0B0D0E; --linie: #2C3033;
+      --tinte: #E5E8EA; --leise: #8C939B; --netz: #383D42;
+      --eins: #6CA8E8; --zwei: #E0785C; --grenze: #B48ADA; --gut: #7FBF6A; --warn: #E0776B;
+      --schatten: 0 1px 0 rgba(255,255,255,.03), 0 12px 30px -18px #000;
+    }
+  }
+  :root[data-theme="dark"] {
+    --grund: #111315; --feld: #181A1C; --tief: #0B0D0E; --linie: #2C3033;
+    --tinte: #E5E8EA; --leise: #8C939B; --netz: #383D42;
+    --eins: #6CA8E8; --zwei: #E0785C; --grenze: #B48ADA; --gut: #7FBF6A; --warn: #E0776B;
+    --schatten: 0 1px 0 rgba(255,255,255,.03), 0 12px 30px -18px #000;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--grund); color:var(--tinte);
+    font-family:var(--f-text); font-size:15px; line-height:1.55; -webkit-font-smoothing:antialiased; }
+  .blatt { max-width:1160px; margin:0 auto;
+    padding: clamp(20px,4vw,44px) clamp(14px,3vw,28px) 64px;
+    display:flex; flex-direction:column; gap:18px; }
+
+  .marke { font-family:var(--f-fest); font-size:10px; letter-spacing:.2em; text-transform:uppercase;
+    color:var(--leise); display:flex; gap:12px; align-items:center; margin:0; }
+  .marke::after { content:""; flex:1; height:1px; background:var(--linie); }
+  h1 { font-family:var(--f-fest); font-weight:700; font-size:clamp(24px,4.2vw,40px);
+    line-height:1.06; letter-spacing:-.03em; margin:0; text-wrap:balance; }
+  h1 span { color:var(--zwei); }
+  .vorspann { max-width:70ch; color:var(--leise); margin:0; }
+  .vorspann b { color:var(--tinte); font-weight:600; }
+
+  .leiste { display:flex; gap:8px; flex-wrap:wrap; align-items:center;
+    background:var(--feld); border:1px solid var(--linie); padding:9px 11px; box-shadow:var(--schatten); }
+  .kl { font-family:var(--f-fest); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--leise); }
+  button, select, input { font-family:var(--f-fest); font-size:12px; color:var(--tinte); background:var(--grund);
+    border:1px solid var(--linie); border-radius:0; padding:6px 10px; letter-spacing:.03em; }
+  button, select { cursor:pointer; }
+  button:hover, select:hover { border-color:var(--eins); }
+  button:active { background:var(--tief); }
+  button:disabled { opacity:.45; cursor:default; }
+  button.haupt { background:var(--eins); border-color:var(--eins); color:var(--feld); }
+  input[type=range] { padding:0; background:none; border:none; accent-color:var(--eins); vertical-align:middle; }
+  :focus-visible { outline:2px solid var(--eins); outline-offset:2px; }
+
+  .kasten { background:var(--feld); border:1px solid var(--linie); box-shadow:var(--schatten);
+    display:flex; flex-direction:column; min-width:0; }
+  .kasten-kopf { display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+    padding:8px 11px; border-bottom:1px solid var(--linie); }
+  .kasten-leib { padding:11px; display:flex; flex-direction:column; gap:10px; min-width:0; }
+  .buehne { display:grid; grid-template-columns: minmax(0,1fr) 320px; gap:18px; align-items:start; }
+  @media (max-width: 900px) { .buehne { grid-template-columns: minmax(0,1fr); } }
+  .saeule { display:flex; flex-direction:column; gap:18px; min-width:0; }
+
+  canvas { width:100%; height:auto; display:block; background:var(--tief); border:1px solid var(--linie); }
+
+  .werte { display:grid; grid-template-columns:repeat(auto-fit,minmax(124px,1fr)); gap:1px;
+    background:var(--linie); border:1px solid var(--linie); }
+  .wert { background:var(--feld); padding:7px 9px; min-width:0; }
+  .wert .l { font-family:var(--f-fest); font-size:9.5px; letter-spacing:.13em; text-transform:uppercase; color:var(--leise); }
+  .wert .n { font-family:var(--f-fest); font-size:16px; font-variant-numeric:tabular-nums; }
+  .wert .n.eins { color:var(--eins); } .wert .n.zwei { color:var(--zwei); }
+  .wert .n.grenze { color:var(--grenze); } .wert .n.gut { color:var(--gut); }
+
+  table.liste { border-collapse:collapse; width:100%; font-family:var(--f-fest); font-size:12px; }
+  table.liste th, table.liste td { border-bottom:1px solid var(--linie); padding:4px 7px; text-align:left; }
+  table.liste th { color:var(--leise); font-weight:400; font-size:10px; letter-spacing:.1em; text-transform:uppercase; }
+  table.liste td.z { text-align:right; font-variant-numeric:tabular-nums; }
+  .gutt { color:var(--gut); } .schlecht { color:var(--warn); }
+
+  .balken { height:6px; background:var(--tief); border:1px solid var(--linie); overflow:hidden; }
+  .balken i { display:block; height:100%; width:0; background:var(--eins); transition:width .12s linear; }
+
+  .hinweis { font-family:var(--f-fest); font-size:12px; color:var(--leise); letter-spacing:0; margin:0; }
+  .hinweis b { color:var(--tinte); font-weight:600; }
+  .strich { display:inline-block; width:14px; height:2px; vertical-align:3px; margin-right:5px; }
+
+  .noten { display:grid; grid-template-columns:repeat(auto-fit,minmax(270px,1fr)); gap:18px; margin-top:6px; }
+  .noten section { background:var(--feld); border:1px solid var(--linie); padding:12px 14px; box-shadow:var(--schatten); }
+  .noten h3 { font-family:var(--f-fest); font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--leise); margin:0 0 6px; font-weight:400; }
+  .noten p { margin:0; font-size:14px; }
+  code { font-family:var(--f-fest); font-size:12.5px; background:var(--tief); padding:1px 4px; }
+  .fuss { color:var(--leise); font-size:13px; border-top:1px solid var(--linie); padding-top:12px; }
+  .fuss a { color:var(--eins); }
+</style>
+</head>
+<body>
+<main class="blatt">
+
+  <p class="marke">Blatt · Grenzen</p>
+  <h1>Vorhersage — wie weit ein Rechner in die <span>Zukunft</span> sieht</h1>
+  <p class="vorspann">
+    Zwei Pendel, dieselben Gleichungen, derselbe Rechner. Der Unterschied im Startwinkel beträgt
+    <b>ein einziges Bit</b> — die kleinste Zahl, die eine Fließkommazahl überhaupt trennen kann.
+    Nach ein paar Sekunden haben die beiden nichts mehr miteinander zu tun. Das ist kein
+    Rechenfehler: <b>es ist die Grenze der Vorhersagbarkeit</b>, und sie lässt sich messen,
+    ausrechnen und im Voraus angeben.
+  </p>
+
+  <div class="leiste">
+    <span class="kl">Störung</span>
+    <select id="stoerung" aria-label="Anfangsunterschied">
+      <option value="ulp">ein einziges Bit (1 ULP)</option>
+      <option value="1e-12">10⁻¹²</option>
+      <option value="1e-9" selected>10⁻⁹</option>
+      <option value="1e-6">10⁻⁶</option>
+      <option value="1e-3">10⁻³</option>
+    </select>
+    <span class="kl" style="margin-left:4px">Schrittweite</span>
+    <select id="schritt" aria-label="Schrittweite">
+      <option value="0.02">0,02 s</option>
+      <option value="0.005" selected>0,005 s</option>
+      <option value="0.001">0,001 s</option>
+    </select>
+    <span class="kl" style="margin-left:4px">Tempo</span>
+    <input type="range" id="tempo" min="1" max="60" value="20" style="width:90px" aria-label="Tempo" />
+    <button id="b-lauf" class="haupt">Laufen</button>
+    <button id="b-neu">Zurücksetzen</button>
+    <span style="flex:1"></span>
+    <button id="b-thema">Ansicht</button>
+  </div>
+
+  <div class="buehne">
+    <div class="saeule">
+      <div class="kasten">
+        <div class="kasten-kopf">
+          <span class="kl">Zwei Doppelpendel, ein Bit Unterschied</span>
+          <span class="kl" id="pendel-lage" style="margin-left:auto"></span>
+        </div>
+        <div class="kasten-leib">
+          <canvas id="pendel" width="1000" height="440" aria-label="Zwei Doppelpendel nebeneinander"></canvas>
+          <p class="hinweis">
+            <span class="strich" style="background:var(--eins)"></span>die erste Bahn ·
+            <span class="strich" style="background:var(--zwei)"></span>die zweite, im Startwinkel um
+            den gewählten Betrag daneben. Solange sie sich decken, sieht man nur eine.
+          </p>
+        </div>
+      </div>
+
+      <div class="kasten">
+        <div class="kasten-kopf">
+          <span class="kl">Wie der Unterschied wächst</span>
+          <span class="kl" id="abstand-lage" style="margin-left:auto"></span>
+        </div>
+        <div class="kasten-leib">
+          <canvas id="abstand" width="1000" height="260" aria-label="Abstand der beiden Bahnen über die Zeit"></canvas>
+          <p class="hinweis" id="abstand-fuss">
+            Senkrecht steht der Abstand der beiden Zustände, <b>logarithmisch</b> — eine Gerade
+            bedeutet also exponentielles Wachstum. Die Steigung ist der Lyapunov-Exponent: die Zahl,
+            die sagt, wie schnell aus einem winzigen Unterschied ein völlig anderer Verlauf wird.
+          </p>
+        </div>
+      </div>
+
+      <div class="kasten">
+        <div class="kasten-kopf">
+          <span class="kl">Verfahren gegen Energie</span>
+          <button id="b-energie" style="margin-left:auto">Lang rechnen</button>
+        </div>
+        <div class="kasten-leib">
+          <canvas id="energie" width="1000" height="240" aria-label="Energiefehler dreier Verfahren"></canvas>
+          <p class="hinweis" id="energie-fuss">
+            Dasselbe einfache Pendel, drei Integratoren, dieselbe Schrittweite. Ein reibungsfreies
+            Pendel darf keine Energie verlieren oder gewinnen — was die Verfahren daraus machen,
+            steht hier.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="saeule">
+      <div class="kasten">
+        <div class="kasten-kopf"><span class="kl">Gemessen</span></div>
+        <div class="kasten-leib">
+          <div class="werte">
+            <div class="wert"><div class="l">Zeit</div><div class="n" id="w-zeit">0,00 s</div></div>
+            <div class="wert"><div class="l">Abstand</div><div class="n zwei" id="w-abstand">—</div></div>
+            <div class="wert"><div class="l">Startunterschied</div><div class="n" id="w-start">—</div></div>
+            <div class="wert"><div class="l">Schritte</div><div class="n" id="w-schritte">0</div></div>
+          </div>
+          <p class="hinweis" id="mess-fuss"></p>
+        </div>
+      </div>
+
+      <div class="kasten">
+        <div class="kasten-kopf">
+          <span class="kl">Der Horizont</span>
+          <button id="b-lyapunov" style="margin-left:auto">λ messen</button>
+        </div>
+        <div class="kasten-leib">
+          <div class="balken"><i id="lya-balken"></i></div>
+          <div class="werte">
+            <div class="wert"><div class="l">Lyapunov λ</div><div class="n grenze" id="w-lambda">—</div></div>
+            <div class="wert"><div class="l">Verdopplungszeit</div><div class="n" id="w-verdopplung">—</div></div>
+          </div>
+          <table class="liste" id="horizont">
+            <thead><tr><th>Startgenauigkeit</th><th class="z">brauchbar bis</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <p class="hinweis" id="horizont-fuss">
+            Gemessen am Lorenz-System, dem Standardfall der Chaosforschung — dort ist der
+            Literaturwert bekannt und die Messung damit überprüfbar.
+          </p>
+        </div>
+      </div>
+
+      <div class="kasten">
+        <div class="kasten-kopf"><span class="kl">Lorenz</span></div>
+        <div class="kasten-leib">
+          <canvas id="lorenz" width="620" height="440" aria-label="Lorenz-Attraktor"></canvas>
+          <p class="hinweis">
+            Drei Gleichungen, aufgeschrieben 1963 für ein Wettermodell mit zwölf Variablen, das
+            Lorenz auf drei eingedampft hatte. Die Bahn kreuzt sich nie und wiederholt sich nie —
+            und wo sie als nächstes hinspringt, hängt an Stellen, die keine Messung je erreicht.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="kasten">
+    <div class="kasten-kopf">
+      <span class="kl">Beweis statt Behauptung</span>
+      <button id="b-pruefen" class="haupt" style="margin-left:auto">Prüfen</button>
+    </div>
+    <div class="kasten-leib">
+      <p class="hinweis">
+        Dieses Blatt behauptet zwei Dinge, die sich widersprechen könnten: dass die Rechnung
+        <b>vollständig deterministisch</b> ist — gleiche Eingabe, bitgleiche Ausgabe — und dass ihr
+        Ergebnis trotzdem <b>nicht vorhersagbar</b> ist. Beides wird hier nachgewiesen, dazu der
+        gemessene Lyapunov-Exponent gegen den Literaturwert, die Ordnung des Verfahrens, das
+        Energieverhalten dreier Integratoren über Millionen Schritte — und die Vorhersage der
+        Vorhersagegrenze selbst.
+      </p>
+      <div class="balken"><i id="pruef-balken"></i></div>
+      <table class="liste" id="pruef"><tbody></tbody></table>
+      <p class="hinweis" id="pruef-fuss">noch nicht geprüft</p>
+    </div>
+  </div>
+
+  <div class="noten">
+    <section>
+      <h3>Warum bessere Messgeräte kaum helfen</h3>
+      <p>
+        Der Fehler wächst wie <code>e^(λt)</code>. Eine <b>tausendfach</b> genauere Ausgangsmessung
+        verschiebt den Horizont nur um <code>ln(1000)/λ</code> — beim Lorenz-System sind das rund
+        <b>siebeneinhalb Zeiteinheiten</b>. Exponentielles Wachstum lässt sich nicht mit Geld
+        bezahlen: für jede weitere Stunde Vorhersage braucht es eine Größenordnung mehr Genauigkeit.
+      </p>
+    </section>
+    <section>
+      <h3>Deterministisch und unvorhersagbar</h3>
+      <p>
+        Das ist kein Widerspruch, sondern der ganze Punkt. Die Gleichungen enthalten keinen Zufall;
+        wer denselben Startwert einsetzt, bekommt <b>bitgleich</b> dasselbe heraus. Nur ist der
+        Startwert nie exakt bekannt — und was in der siebzehnten Stelle steht, entscheidet
+        irgendwann darüber, ob das Pendel links oder rechts herum überschlägt.
+      </p>
+    </section>
+    <section>
+      <h3>Welches Verfahren lügt wie</h3>
+      <p>
+        Euler verliert oder gewinnt Energie ohne Grenze — bei diesem Pendel wächst sie auf das
+        Zwanzigfache. Runge-Kutta 4 ist um Größenordnungen genauer, driftet aber
+        <b>stetig in eine Richtung</b>. Der symplektische Schritt ist der ungenaueste von Schritt zu
+        Schritt und trotzdem der einzige, dessen Fehler <b>beschränkt</b> bleibt: er schwankt und
+        läuft nicht davon.
+      </p>
+    </section>
+  </div>
+
+  <p class="fuss">
+    Eine einzelne HTML-Datei. Kein Build, keine Bibliothek, nichts verlässt den Browser.
+    <span style="display:block;margin-top:8px">
+      Alle Blätter: <a href="https://ssims437.github.io/">ssims437.github.io</a>
+    </span>
+  </p>
+
+</main>
+
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+
+  /* ==========================================================================
+     EIN BIT WEITER
+     Die kleinste Änderung, die eine Fließkommazahl kennt: das letzte Bit der
+     Mantisse um eins erhöhen. Kleiner geht es nicht — und das reicht.
+     ========================================================================== */
+  const puffer = new ArrayBuffer(8), sicht = new DataView(puffer);
+  function einBitWeiter(x) {
+    sicht.setFloat64(0, x);
+    let hoch = sicht.getUint32(0), tief = sicht.getUint32(4);
+    if (tief === 0xFFFFFFFF) { hoch = (hoch + 1) >>> 0; tief = 0; } else tief = (tief + 1) >>> 0;
+    sicht.setUint32(0, hoch); sicht.setUint32(4, tief);
+    return sicht.getFloat64(0);
+  }
+
+  /* ==========================================================================
+     DOPPELPENDEL
+     Zwei Stäbe, zwei Winkel, keine Reibung. Die Bewegungsgleichungen stehen in
+     jedem Lehrbuch der Mechanik; interessant ist hier nicht die Herleitung,
+     sondern dass zwei Kopien davon auseinanderlaufen.
+     ========================================================================== */
+  const G = 9.81, L1 = 1, L2 = 1, M1 = 1, M2 = 1;
+
+  function ableitung(z) {
+    const [t1, t2, w1, w2] = z;
+    const d = t1 - t2;
+    const nenner = 2 * M1 + M2 - M2 * Math.cos(2 * d);
+    const dw1 = (-G * (2 * M1 + M2) * Math.sin(t1)
+      - M2 * G * Math.sin(t1 - 2 * t2)
+      - 2 * Math.sin(d) * M2 * (w2 * w2 * L2 + w1 * w1 * L1 * Math.cos(d))) / (L1 * nenner);
+    const dw2 = (2 * Math.sin(d) * (w1 * w1 * L1 * (M1 + M2)
+      + G * (M1 + M2) * Math.cos(t1)
+      + w2 * w2 * L2 * M2 * Math.cos(d))) / (L2 * nenner);
+    return [w1, w2, dw1, dw2];
+  }
+
+  function rk4(f, z, h) {
+    const a = f(z);
+    const b = f(z.map((x, i) => x + h / 2 * a[i]));
+    const c = f(z.map((x, i) => x + h / 2 * b[i]));
+    const d = f(z.map((x, i) => x + h * c[i]));
+    return z.map((x, i) => x + h / 6 * (a[i] + 2 * b[i] + 2 * c[i] + d[i]));
+  }
+
+  const abstand = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2], a[3] - b[3]);
+  const spitze = (z) => [L1 * Math.sin(z[0]) + L2 * Math.sin(z[1]), L1 * Math.cos(z[0]) + L2 * Math.cos(z[1])];
+
+  /* ==========================================================================
+     LORENZ — der Standardfall, an dem sich die Messung prüfen lässt
+     ========================================================================== */
+  const SIGMA = 10, RHO = 28, BETA = 8 / 3;
+  const lorenz = (z) => [SIGMA * (z[1] - z[0]), z[0] * (RHO - z[2]) - z[1], z[0] * z[1] - BETA * z[2]];
+
+  /* Lyapunov nach Benettin: zwei Bahnen im Abstand d₀ laufen lassen, den
+     gewachsenen Abstand notieren, die zweite Bahn wieder auf d₀ heranholen und
+     von vorn. Der Mittelwert der Logarithmen ist der Exponent. */
+  function lyapunov(schritte, h, melde) {
+    let x = [1, 1, 1];
+    for (let i = 0; i < 4000; i++) x = rk4(lorenz, x, h);      // erst auf den Attraktor einschwingen
+    const d0 = 1e-8;
+    let y = [x[0] + d0, x[1], x[2]];
+    let summe = 0;
+    for (let i = 0; i < schritte; i++) {
+      x = rk4(lorenz, x, h);
+      y = rk4(lorenz, y, h);
+      const d = Math.hypot(y[0] - x[0], y[1] - x[1], y[2] - x[2]);
+      summe += Math.log(d / d0);
+      y = [x[0] + (y[0] - x[0]) * d0 / d, x[1] + (y[1] - x[1]) * d0 / d, x[2] + (y[2] - x[2]) * d0 / d];
+      if (melde && (i & 8191) === 0) melde(i / schritte);
+    }
+    return summe / (schritte * h);
+  }
+
+  /* ==========================================================================
+     ZUSTAND
+     ========================================================================== */
+  const START = [2.4, 2.1, 0, 0];
+  let A = START.slice(), B = START.slice();
+  let SCHRITT = 0.005, ZEIT = 0, SCHRITTE = 0, STOERUNG = "1e-9", STARTABSTAND = 0;
+  let LAEUFT = false, UHR = null;
+  let VERLAUF = [];                    // [zeit, abstand]
+  let SPUR_A = [], SPUR_B = [];
+  let LAMBDA = null;
+
+  function neuStarten() {
+    A = START.slice();
+    B = START.slice();
+    if (STOERUNG === "ulp") B[0] = einBitWeiter(B[0]);
+    else B[0] = B[0] + parseFloat(STOERUNG);
+    STARTABSTAND = abstand(A, B);
+    ZEIT = 0; SCHRITTE = 0; VERLAUF = []; SPUR_A = []; SPUR_B = [];
+    anzeigen();
+    zeichnenPendel();
+    zeichnenAbstand();
+  }
+
+  function schritt(n) {
+    for (let i = 0; i < n; i++) {
+      A = rk4(ableitung, A, SCHRITT);
+      B = rk4(ableitung, B, SCHRITT);
+      ZEIT += SCHRITT; SCHRITTE++;
+      if (SCHRITTE % 4 === 0) {
+        VERLAUF.push([ZEIT, abstand(A, B)]);
+        if (VERLAUF.length > 4000) VERLAUF.shift();
+        SPUR_A.push(spitze(A)); SPUR_B.push(spitze(B));
+        if (SPUR_A.length > 700) { SPUR_A.shift(); SPUR_B.shift(); }
+      }
+    }
+  }
+
+  /* ==========================================================================
+     ZEICHNEN
+     ========================================================================== */
+  const farbe = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  function zeichnenPendel() {
+    const c = $("pendel"), g = c.getContext("2d");
+    g.fillStyle = farbe("--tief"); g.fillRect(0, 0, c.width, c.height);
+    const mx = c.width / 2, my = c.height * 0.34, s = Math.min(c.width, c.height) * 0.19;
+
+    const spur = (liste, farbname) => {
+      g.strokeStyle = farbe(farbname); g.lineWidth = 1;
+      g.beginPath();
+      liste.forEach(([x, y], i) => {
+        const px = mx + x * s, py = my + y * s;
+        i ? g.lineTo(px, py) : g.moveTo(px, py);
+      });
+      g.globalAlpha = .35; g.stroke(); g.globalAlpha = 1;
+    };
+    spur(SPUR_A, "--eins"); spur(SPUR_B, "--zwei");
+
+    const zeichne = (z, farbname, breite) => {
+      const x1 = mx + L1 * Math.sin(z[0]) * s, y1 = my + L1 * Math.cos(z[0]) * s;
+      const x2 = x1 + L2 * Math.sin(z[1]) * s, y2 = y1 + L2 * Math.cos(z[1]) * s;
+      g.strokeStyle = farbe(farbname); g.lineWidth = breite; g.lineCap = "round";
+      g.beginPath(); g.moveTo(mx, my); g.lineTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+      g.fillStyle = farbe(farbname);
+      g.beginPath(); g.arc(x1, y1, breite * 1.6, 0, 7); g.fill();
+      g.beginPath(); g.arc(x2, y2, breite * 2.1, 0, 7); g.fill();
+    };
+    zeichne(B, "--zwei", 3.4);
+    zeichne(A, "--eins", 2.2);
+    g.fillStyle = farbe("--netz");
+    g.beginPath(); g.arc(mx, my, 4, 0, 7); g.fill();
+
+    $("pendel-lage").textContent = `t = ${ZEIT.toFixed(2)} s · Schrittweite ${SCHRITT} s`;
+  }
+
+  function zeichnenAbstand() {
+    const c = $("abstand"), g = c.getContext("2d");
+    const links = 52, unten = 24, oben = 10, rechts = 10;
+    const Bx = c.width - links - rechts, Hy = c.height - unten - oben;
+    g.fillStyle = farbe("--tief"); g.fillRect(0, 0, c.width, c.height);
+
+    const maxZeit = Math.max(12, ZEIT);
+    const nachX = (t) => links + t / maxZeit * Bx;
+    const unten10 = -17, oben10 = 1;                       // Zehnerpotenzen der Achse
+    const nachY = (d) => {
+      const l = Math.log10(Math.max(1e-18, d));
+      return oben + Hy * (1 - (l - unten10) / (oben10 - unten10));
+    };
+
+    g.strokeStyle = farbe("--netz"); g.globalAlpha = .4; g.lineWidth = 1;
+    g.font = "9px ui-monospace, monospace"; g.textAlign = "right"; g.textBaseline = "middle";
+    for (let e = unten10; e <= oben10; e += 3) {
+      const y = nachY(Math.pow(10, e));
+      g.beginPath(); g.moveTo(links, y); g.lineTo(c.width - rechts, y); g.stroke();
+      g.globalAlpha = 1; g.fillStyle = farbe("--leise");
+      g.fillText("10" + (e < 0 ? "⁻" : "") + String(Math.abs(e)).split("").map((z) => "⁰¹²³⁴⁵⁶⁷⁸⁹"[+z]).join(""), links - 5, y);
+      g.globalAlpha = .4;
+    }
+    g.textAlign = "center"; g.textBaseline = "top";
+    for (let t = 0; t <= maxZeit; t += Math.max(2, Math.round(maxZeit / 8))) {
+      const x = nachX(t);
+      g.beginPath(); g.moveTo(x, oben); g.lineTo(x, oben + Hy); g.stroke();
+      g.globalAlpha = 1; g.fillStyle = farbe("--leise"); g.fillText(t + " s", x, oben + Hy + 5);
+      g.globalAlpha = .4;
+    }
+    g.globalAlpha = 1;
+
+    // die Marke, ab der die beiden Bahnen makroskopisch verschieden sind
+    g.strokeStyle = farbe("--grenze"); g.setLineDash([4, 4]); g.lineWidth = 1;
+    g.beginPath(); g.moveTo(links, nachY(1)); g.lineTo(c.width - rechts, nachY(1)); g.stroke();
+    g.setLineDash([]);
+    g.fillStyle = farbe("--grenze"); g.textAlign = "left"; g.textBaseline = "bottom";
+    g.fillText("Abstand 1 — hier sind es zwei verschiedene Pendel", links + 6, nachY(1) - 3);
+
+    if (VERLAUF.length > 1) {
+      g.strokeStyle = farbe("--zwei"); g.lineWidth = 1.6;
+      g.beginPath();
+      VERLAUF.forEach(([t, d], i) => {
+        const x = nachX(t), y = nachY(d);
+        i ? g.lineTo(x, y) : g.moveTo(x, y);
+      });
+      g.stroke();
+    }
+
+    $("abstand-lage").textContent = VERLAUF.length
+      ? `zuletzt ${VERLAUF[VERLAUF.length - 1][1].toExponential(2)}`
+      : "noch nichts gerechnet";
+  }
+
+  function zeichnenLorenz() {
+    const c = $("lorenz"), g = c.getContext("2d");
+    g.fillStyle = farbe("--tief"); g.fillRect(0, 0, c.width, c.height);
+    let z = [1, 1, 1];
+    for (let i = 0; i < 2000; i++) z = rk4(lorenz, z, 0.005);
+    g.strokeStyle = farbe("--eins"); g.lineWidth = 0.6; g.globalAlpha = .8;
+    g.beginPath();
+    for (let i = 0; i < 40000; i++) {
+      z = rk4(lorenz, z, 0.004);
+      const x = c.width / 2 + z[0] * 9, y = c.height - 24 - (z[2] - 4) * 8;
+      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    }
+    g.stroke(); g.globalAlpha = 1;
+  }
+
+  /* Energie am einfachen Pendel: drei Verfahren, dieselbe Schrittweite. */
+  function energieLauf(schritte, h) {
+    const g0 = 9.81, l = 1;
+    const H = (th, p) => 0.5 * p * p / (l * l) + g0 * l * (1 - Math.cos(th));
+    const H0 = H(1, 0);
+    let eu = { th: 1, p: 0 }, sy = { th: 1, p: 0 }, r4 = [1, 0];
+    const f = (v) => [v[1] / (l * l), -g0 * l * Math.sin(v[0])];
+    const reihen = { euler: [], symplektisch: [], rk4: [] };
+    const jede = Math.max(1, Math.floor(schritte / 400));
+    for (let i = 1; i <= schritte; i++) {
+      const dth = eu.p / (l * l), dp = -g0 * l * Math.sin(eu.th);
+      eu = { th: eu.th + h * dth, p: eu.p + h * dp };
+      sy.p += h * (-g0 * l * Math.sin(sy.th));           // erst Impuls, dann Ort: das ist der Trick
+      sy.th += h * sy.p / (l * l);
+      r4 = rk4(f, r4, h);
+      if (i % jede === 0) {
+        reihen.euler.push([i, H(eu.th, eu.p) - H0]);
+        reihen.symplektisch.push([i, H(sy.th, sy.p) - H0]);
+        reihen.rk4.push([i, H(r4[0], r4[1]) - H0]);
+      }
+    }
+    return { reihen, H0 };
+  }
+
+  function zeichnenEnergie(daten) {
+    const c = $("energie"), g = c.getContext("2d");
+    const links = 62, unten = 24, oben = 12, rechts = 10;
+    const Bx = c.width - links - rechts, Hy = c.height - unten - oben;
+    g.fillStyle = farbe("--tief"); g.fillRect(0, 0, c.width, c.height);
+    if (!daten) {
+      g.fillStyle = farbe("--leise"); g.font = "12px ui-monospace, monospace";
+      g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText("„Lang rechnen“ drücken — zwei Millionen Schritte je Verfahren", c.width / 2, c.height / 2);
+      return;
+    }
+    const alle = [...daten.reihen.euler, ...daten.reihen.symplektisch, ...daten.reihen.rk4];
+    const maxN = Math.max(...alle.map(([i]) => i));
+    const maxF = Math.max(...alle.map(([, e]) => Math.abs(e)), 1e-9);
+    const nachX = (i) => links + i / maxN * Bx;
+    const nachY = (e) => {
+      const l = Math.log10(Math.max(1e-12, Math.abs(e)));
+      const lmax = Math.log10(maxF), lmin = -12;
+      return oben + Hy * (1 - (l - lmin) / (lmax - lmin));
+    };
+    g.strokeStyle = farbe("--netz"); g.globalAlpha = .4;
+    g.font = "9px ui-monospace, monospace"; g.textAlign = "right"; g.textBaseline = "middle";
+    for (let e = -12; e <= Math.ceil(Math.log10(maxF)); e += 3) {
+      const y = nachY(Math.pow(10, e));
+      g.beginPath(); g.moveTo(links, y); g.lineTo(c.width - rechts, y); g.stroke();
+      g.globalAlpha = 1; g.fillStyle = farbe("--leise");
+      g.fillText("10" + (e < 0 ? "⁻" : "") + String(Math.abs(e)).split("").map((z) => "⁰¹²³⁴⁵⁶⁷⁸⁹"[+z]).join(""), links - 5, y);
+      g.globalAlpha = .4;
+    }
+    g.globalAlpha = 1;
+    const linie = (reihe, farbname) => {
+      g.strokeStyle = farbe(farbname); g.lineWidth = 1.5;
+      g.beginPath();
+      reihe.forEach(([i, e], k) => { const x = nachX(i), y = nachY(e); k ? g.lineTo(x, y) : g.moveTo(x, y); });
+      g.stroke();
+    };
+    linie(daten.reihen.euler, "--warn");
+    linie(daten.reihen.symplektisch, "--eins");
+    linie(daten.reihen.rk4, "--zwei");
+    g.fillStyle = farbe("--leise"); g.textAlign = "left"; g.textBaseline = "top";
+    g.fillText("Schritte →", links, oben + Hy + 6);
+    g.fillText("|Energiefehler|", links, oben - 2);
+  }
+
+  /* ==========================================================================
+     ANZEIGE
+     ========================================================================== */
+  function anzeigen() {
+    $("w-zeit").textContent = ZEIT.toFixed(2).replace(".", ",") + " s";
+    $("w-schritte").textContent = SCHRITTE.toLocaleString("de-AT");
+    const d = abstand(A, B);
+    $("w-abstand").textContent = d < 1e-4 ? d.toExponential(2) : d.toFixed(4).replace(".", ",");
+    $("w-start").textContent = STARTABSTAND === 0 ? "0" : STARTABSTAND.toExponential(2);
+    const gross = VERLAUF.find(([, x]) => x >= 1);
+    $("mess-fuss").innerHTML = gross
+      ? `Nach <b>${gross[0].toFixed(2)} s</b> war der Abstand auf 1 gewachsen — ab da sind es zwei ` +
+        `verschiedene Pendel. Aus einem Startunterschied von ${STARTABSTAND.toExponential(1)}.`
+      : `Noch decken sich beide Bahnen. Weiterlaufen lassen — der Abstand wächst nicht langsam, ` +
+        `sondern <b>exponentiell</b>.`;
+  }
+
+  function horizontTafel() {
+    const tb = $("horizont").querySelector("tbody");
+    tb.textContent = "";
+    if (LAMBDA === null) {
+      tb.innerHTML = `<tr><td colspan="2" style="color:var(--leise)">noch nicht gemessen</td></tr>`;
+      return;
+    }
+    for (const [text, eps] of [["Millimeter am Pendel", 1e-3], ["Mikrometer", 1e-6],
+      ["Nanometer", 1e-9], ["ein Bit im Rechner", 2.2e-16]]) {
+      const t = Math.log(1 / eps) / LAMBDA;
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${text} <span class="kl">${eps.toExponential(0)}</span></td>` +
+        `<td class="z">${t.toFixed(1)} Zeiteinheiten</td>`;
+      tb.append(tr);
+    }
+    const gewinn = Math.log(1000) / LAMBDA;
+    $("horizont-fuss").innerHTML = `Gemessen am Lorenz-System (Literaturwert 0,9056). ` +
+      `<b>Tausendfach genauer messen verlängert die Vorhersage um ${gewinn.toFixed(1)} Zeiteinheiten</b> — ` +
+      `nicht um das Tausendfache. Das ist der ganze Unterschied zwischen linearem Aufwand und ` +
+      `exponentiellem Wachstum.`;
+  }
+
+  /* ==========================================================================
+     PRÜFLAUF
+     ========================================================================== */
+  const warte = () => new Promise((r) => setTimeout(r, 0));
+
+  async function pruefen() {
+    const knopf = $("b-pruefen");
+    knopf.disabled = true;
+    const tb = $("pruef").querySelector("tbody");
+    tb.textContent = "";
+    let fehler = 0;
+    const zeile = (was, gut, text) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${was}</td><td style="color:${gut ? "var(--gut)" : "var(--warn)"}">${text}</td>`;
+      tb.append(tr);
+      if (!gut) fehler++;
+    };
+    const balken = (t) => { $("pruef-balken").style.width = (t * 100).toFixed(1) + "%"; };
+    const t0 = performance.now();
+
+    // 1. Determinismus: gleiche Eingabe, bitgleiche Ausgabe.
+    {
+      const lauf = () => {
+        let z = START.slice();
+        for (let i = 0; i < 60000; i++) z = rk4(ableitung, z, 0.005);
+        return z;
+      };
+      const a = lauf(), b = lauf();
+      const gleich = a.every((x, i) => Object.is(x, b[i]));
+      zeile("gleiche Eingabe, bitgleiche Ausgabe", gleich,
+        gleich ? `zwei Läufe über 60 000 Schritte, alle vier Zahlen bis aufs letzte Bit identisch ` +
+                 `(θ₁ = ${a[0].toPrecision(17)})`
+               : "die Läufe unterscheiden sich — dann wäre hier Zufall im Spiel");
+    }
+    balken(0.15); await warte();
+
+    // 2. Ein einziges Bit genügt, damit sie auseinanderlaufen.
+    {
+      let x = START.slice(), y = START.slice();
+      y[0] = einBitWeiter(y[0]);
+      const d0 = abstand(x, y);
+      let zeitBis1 = null;
+      for (let i = 0; i < 400000 && zeitBis1 === null; i++) {
+        x = rk4(ableitung, x, 0.005);
+        y = rk4(ableitung, y, 0.005);
+        if (abstand(x, y) >= 1) zeitBis1 = i * 0.005;
+      }
+      zeile("ein Bit genügt", zeitBis1 !== null,
+        zeitBis1 !== null
+          ? `Startunterschied ${d0.toExponential(2)} — nach <b>${zeitBis1.toFixed(1)} s</b> ist der ` +
+            `Abstand auf 1 gewachsen, aus dem letzten Bit einer Zahl`
+          : "in 2000 s nicht auseinandergelaufen");
+    }
+    balken(0.3); await warte();
+
+    // 3. Der Lyapunov-Exponent gegen den Literaturwert.
+    {
+      const l = lyapunov(120000, 0.005, null);
+      const soll = 0.9056;
+      zeile("Lyapunov-Exponent trifft die Literatur", Math.abs(l - soll) < 0.05,
+        `Lorenz-System gemessen: <b>λ = ${l.toFixed(4)}</b> gegen ${soll} aus der Literatur · ` +
+        `Verdopplungszeit ln2/λ = ${(Math.LN2 / l).toFixed(3)} Zeiteinheiten`);
+      LAMBDA = l;
+      $("w-lambda").textContent = l.toFixed(4).replace(".", ",");
+      $("w-verdopplung").textContent = (Math.LN2 / l).toFixed(3).replace(".", ",");
+      horizontTafel();
+    }
+    balken(0.5); await warte();
+
+    // 4. Die Vorhersage der Vorhersagegrenze.
+    {
+      let treffer = 0, faelle = 0, notiz = [];
+      for (const eps of [1e-12, 1e-10, 1e-8, 1e-6]) {
+        let x = [1, 1, 1];
+        for (let i = 0; i < 4000; i++) x = rk4(lorenz, x, 0.005);
+        let y = [x[0] + eps, x[1], x[2]];
+        let zeitBis = null;
+        for (let i = 0; i < 60000 && zeitBis === null; i++) {
+          x = rk4(lorenz, x, 0.005); y = rk4(lorenz, y, 0.005);
+          if (Math.hypot(y[0] - x[0], y[1] - x[1], y[2] - x[2]) >= 1) zeitBis = i * 0.005;
+        }
+        const erwartet = Math.log(1 / eps) / LAMBDA;
+        faelle++;
+        if (zeitBis !== null && Math.abs(zeitBis - erwartet) < 6) treffer++;
+        notiz.push(`${eps.toExponential(0)}: ${zeitBis === null ? "—" : zeitBis.toFixed(1)} s gegen ${erwartet.toFixed(1)} s`);
+      }
+      zeile("die Grenze lässt sich vorhersagen", treffer === faelle,
+        `gemessene Zeit bis Abstand 1 gegen ln(1/ε)/λ — ${notiz.join(" · ")}`);
+    }
+    balken(0.65); await warte();
+
+    // 5. Runge-Kutta 4 ist wirklich vierter Ordnung.
+    {
+      const f = (v) => [v[0]];                         // y' = y, y(0)=1, exakt e bei t=1
+      const fehlerBei = (h) => {
+        let z = [1];
+        const n = Math.round(1 / h);
+        for (let i = 0; i < n; i++) z = rk4(f, z, h);
+        return Math.abs(z[0] - Math.E);
+      };
+      const e1 = fehlerBei(0.1), e2 = fehlerBei(0.05), e3 = fehlerBei(0.025);
+      const v1 = e1 / e2, v2 = e2 / e3;
+      zeile("Schrittweite halbieren, Fehler durch 16", v1 > 12 && v1 < 20 && v2 > 12 && v2 < 20,
+        `Fehler ${e1.toExponential(2)} → ${e2.toExponential(2)} → ${e3.toExponential(2)} · ` +
+        `Verhältnis ${v1.toFixed(1)} und ${v2.toFixed(1)} — vierte Ordnung heißt 2⁴ = 16`);
+    }
+    balken(0.75); await warte();
+
+    // 6. Energie: welcher Fehler bleibt beschränkt und welcher wächst.
+    {
+      const daten = energieLauf(2000000, 0.01);
+      const letzte = (r) => Math.abs(r[r.length - 1][1]);
+      const maxAbs = (r) => Math.max(...r.map(([, e]) => Math.abs(e)));
+      const symMax = maxAbs(daten.reihen.symplektisch);
+      const symEnde = letzte(daten.reihen.symplektisch);
+      const rkHalb = Math.abs(daten.reihen.rk4[Math.floor(daten.reihen.rk4.length / 2)][1]);
+      const rkEnde = letzte(daten.reihen.rk4);
+      const eulerEnde = letzte(daten.reihen.euler);
+      zeichnenEnergie(daten);
+      const symBeschraenkt = symEnde <= symMax * 1.001;
+      const rkWaechst = rkEnde > rkHalb * 1.7;
+      zeile("symplektisch bleibt beschränkt, RK4 driftet", symBeschraenkt && rkWaechst && eulerEnde > 1,
+        `2 Mio Schritte · Euler: Fehler <b>${eulerEnde.toExponential(2)}</b> (Energie läuft davon) · ` +
+        `symplektisch: schwankt, größter Ausschlag ${symMax.toExponential(2)}, am Ende ${symEnde.toExponential(2)} · ` +
+        `RK4: <b>wächst stetig</b>, bei halber Strecke ${rkHalb.toExponential(2)}, am Ende ${rkEnde.toExponential(2)}`);
+      $("energie-fuss").innerHTML =
+        `<span class="strich" style="background:var(--warn)"></span>Euler · ` +
+        `<span class="strich" style="background:var(--eins)"></span>symplektisch · ` +
+        `<span class="strich" style="background:var(--zwei)"></span>Runge-Kutta 4. ` +
+        `Beide Achsen logarithmisch. Der symplektische Fehler schwankt und bleibt, wo er ist; ` +
+        `der von RK4 ist winzig und <b>wächst linear weiter</b> — nach zehnfacher Strecke ist er zehnmal so groß.`;
+    }
+    balken(0.9); await warte();
+
+    // 7. Fließkomma-Addition ist nicht assoziativ — und das ändert die Bahn.
+    {
+      /* Wie oft (a+b)+c ≠ a+(b+c) gilt, hängt davon ab, wie viele Stellen die
+         Zahlen überhaupt belegen: Werte mit nur 32 Bit Bruchteil addieren sich
+         oft exakt, voll besetzte Mantissen fast nie. Deshalb beide messen —
+         die eine Zahl allein wäre irreführend. */
+      const zaehle = (rnd, n) => {
+        let schlecht = 0;
+        for (let i = 0; i < n; i++) {
+          const x = rnd() * 1e3, y = rnd(), w = rnd() * 1e-3;
+          if ((x + y) + w !== x + (y + w)) schlecht++;
+        }
+        return schlecht / n * 100;
+      };
+      let z1 = 12345 >>> 0;
+      const sauber = () => { z1 = (Math.imul(z1, 1103515245) + 12345) >>> 0; return z1 / 4294967296 * 2 - 1; };
+      let z2 = 12345;
+      const voll = () => { z2 = (z2 * 1103515245 + 12345) & 0x7fffffff; return z2 / 0x7fffffff * 2 - 1; };
+      const faelle = 200000;
+      const anteilSauber = zaehle(sauber, faelle), anteilVoll = zaehle(voll, faelle);
+      const verletzt = anteilVoll;
+      // dieselbe Bahn, nur die Summanden anders geklammert
+      const rk4Anders = (f, s, h) => {
+        const a = f(s), b = f(s.map((x, i) => x + h / 2 * a[i]));
+        const c = f(s.map((x, i) => x + h / 2 * b[i])), d = f(s.map((x, i) => x + h * c[i]));
+        return s.map((x, i) => x + (h / 6) * (((d[i] + 2 * c[i]) + 2 * b[i]) + a[i]));
+      };
+      let p = START.slice(), q = START.slice();
+      let zeitBis = null;
+      for (let i = 0; i < 200000 && zeitBis === null; i++) {
+        p = rk4(ableitung, p, 0.005);
+        q = rk4Anders(ableitung, q, 0.005);
+        if (abstand(p, q) >= 1) zeitBis = i * 0.005;
+      }
+      zeile("andere Klammern, andere Zukunft", verletzt > 0 && zeitBis !== null,
+        `(a+b)+c = a+(b+c) scheitert bei <b>${anteilVoll.toFixed(1)} %</b> von ${faelle.toLocaleString("de-AT")} Tripeln ` +
+        `mit voll besetzter Mantisse — aber nur bei ${anteilSauber.toFixed(2)} %, wenn die Zahlen bloß 32 Bit ` +
+        `Bruchteil tragen (dann stimmt die Addition oft exakt). Dieselbe Bahn mit umgestellter Summe ` +
+        `läuft nach <b>${zeitBis === null ? "—" : zeitBis.toFixed(1)} s</b> auseinander — ohne dass eine Zahl ` +
+        `geändert wurde, nur die Reihenfolge`);
+    }
+
+    balken(1);
+    knopf.disabled = false;
+    const dauer = performance.now() - t0;
+    $("pruef-fuss").innerHTML = fehler === 0
+      ? `<b>Alle Prüfungen bestanden</b> in ${(dauer / 1000).toFixed(1)} s. Die erste und die zweite Zeile ` +
+        `stehen bewusst nebeneinander: <b>vollständig deterministisch</b> und <b>trotzdem ` +
+        `unvorhersagbar</b>. Die letzte zeigt, dass nicht einmal die Reihenfolge der Additionen ` +
+        `folgenlos bleibt.`
+      : `<b style="color:var(--warn)">${fehler} Prüfung(en) fehlgeschlagen.</b>`;
+    setTimeout(() => balken(0), 1200);
+  }
+
+  /* ==========================================================================
+     BEDIENUNG
+     ========================================================================== */
+  function laufen() {
+    if (LAEUFT) { halt(); return; }
+    LAEUFT = true;
+    $("b-lauf").textContent = "Halt";
+    UHR = setInterval(() => {
+      schritt(+$("tempo").value);
+      anzeigen(); zeichnenPendel(); zeichnenAbstand();
+    }, 16);
+  }
+  function halt() {
+    LAEUFT = false;
+    $("b-lauf").textContent = "Laufen";
+    if (UHR) { clearInterval(UHR); UHR = null; }
+  }
+
+  $("b-lauf").addEventListener("click", laufen);
+  $("b-neu").addEventListener("click", () => { halt(); neuStarten(); });
+  $("stoerung").addEventListener("change", (e) => { STOERUNG = e.target.value; halt(); neuStarten(); });
+  $("schritt").addEventListener("change", (e) => { SCHRITT = +e.target.value; halt(); neuStarten(); });
+  $("b-energie").addEventListener("click", () => {
+    $("b-energie").disabled = true;
+    setTimeout(() => {
+      zeichnenEnergie(energieLauf(2000000, 0.01));
+      $("b-energie").disabled = false;
+    }, 20);
+  });
+  $("b-lyapunov").addEventListener("click", async () => {
+    $("b-lyapunov").disabled = true;
+    await new Promise((r) => setTimeout(r, 20));
+    const l = lyapunov(150000, 0.005, (t) => { $("lya-balken").style.width = (t * 100).toFixed(0) + "%"; });
+    LAMBDA = l;
+    $("lya-balken").style.width = "100%";
+    $("w-lambda").textContent = l.toFixed(4).replace(".", ",");
+    $("w-verdopplung").textContent = (Math.LN2 / l).toFixed(3).replace(".", ",");
+    horizontTafel();
+    $("b-lyapunov").disabled = false;
+    setTimeout(() => { $("lya-balken").style.width = "0"; }, 1200);
+  });
+  $("b-pruefen").addEventListener("click", pruefen);
+  $("b-thema").addEventListener("click", () => {
+    const jetzt = document.documentElement.getAttribute("data-theme");
+    const dunkel = matchMedia("(prefers-color-scheme: dark)").matches;
+    document.documentElement.setAttribute("data-theme", jetzt ? (jetzt === "dark" ? "light" : "dark") : (dunkel ? "light" : "dark"));
+    zeichnenPendel(); zeichnenAbstand(); zeichnenLorenz(); zeichnenEnergie(null);
+  });
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    zeichnenPendel(); zeichnenAbstand(); zeichnenLorenz();
+  });
+
+  neuStarten();
+  zeichnenLorenz();
+  zeichnenEnergie(null);
+  horizontTafel();
+})();
+</script>
+</body>
+</html>
